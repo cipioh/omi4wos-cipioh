@@ -24,7 +24,7 @@ Adapted the original version which performed Android transcription, **this cipio
 │                                      │
 │  WearableListener / Direct Receivers │
 │       ↓                              │
-│  Construct Omi (.bin) archive  │
+│  Construct Omi (.bin) archive        │
 │       ↓                              │
 │  Omi Cloud Core (/sync-local-files)  │
 │       ↓                              │
