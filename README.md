@@ -2,7 +2,7 @@
 
 A multi-module Android/Kotlin project that transforms your WearOS watch into an incredibly efficient, natively integrated Omi speech companion. 
 
-Unlike the original version which struggled with unreliable local Android transcription, **this cipioh-edition rewrite fundamentally redesigns the architectural flow to precisely emulate the Limitless Pendant.** The watch now generates native 16kbps Opus chunks, seamlessly streams them to the phone companion, and directly constructs Limitless-compatible `.bin` archives that are pushed natively into Omi's `/v2/sync-local-files` cloud API for state-of-the-art server-side transcription and intelligence.
+Adapted the original version which performed Android transcription, **this cipioh-edition rewrite fundamentally redesigns the architectural flow to precisely emulate the Omi device.** The watch now generates native 16kbps Opus chunks, seamlessly streams them to the phone companion, and directly constructs Omi-compatible `.bin` archives that are pushed natively into Omi's `/v2/sync-local-files` cloud API for state-of-the-art server-side transcription and intelligence.
 
 ## Architecture
 
@@ -24,7 +24,7 @@ Unlike the original version which struggled with unreliable local Android transc
 │                                      │
 │  WearableListener / Direct Receivers │
 │       ↓                              │
-│  Construct Limitless (.bin) archive  │
+│  Construct Omi (.bin) archive  │
 │       ↓                              │
 │  Omi Cloud Core (/sync-local-files)  │
 │       ↓                              │
