@@ -1,18 +1,17 @@
 package com.omi4wos.wear.audio
 
 import android.media.MediaCodec
-import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.util.Log
 import com.omi4wos.shared.Constants
 import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
 
 /**
  * Opus encoder for compressing PCM16 speech audio before sending to the phone.
  * Uses Android's MediaCodec API which supports Opus encoding on API 29+.
  *
- * Falls back to raw PCM if Opus encoding is not available on the device.
+ * This outputs raw Opus frames prefixed by a 4-byte little-endian length,
+ * exactly matching the Limitless Pendant .bin format!
  */
 class OpusEncoder {
 
@@ -28,27 +27,21 @@ class OpusEncoder {
 
     init {
         try {
-            val format = MediaFormat.createAudioFormat(
-                MIME_TYPE,
-                Constants.SAMPLE_RATE,
-                1 // mono
-            ).apply {
-                setInteger(MediaFormat.KEY_BIT_RATE, Constants.OPUS_BITRATE)
-                setInteger(
-                    MediaFormat.KEY_AAC_PROFILE,
-                    MediaCodecInfo.CodecProfileLevel.AACObjectLC
-                )
-            }
-
+            val format = MediaFormat.createAudioFormat(MIME_TYPE, Constants.SAMPLE_RATE, 1)
+            // Limitless uses around 16kbps for efficient wearable streaming
+            format.setInteger(MediaFormat.KEY_BIT_RATE, 16000)
+            
             codec = MediaCodec.createEncoderByType(MIME_TYPE)
             codec?.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
             codec?.start()
+
+            useFallbackPcm = false
             isInitialized = true
-            Log.i(TAG, "Opus encoder initialized: ${Constants.OPUS_BITRATE}bps")
+            Log.i(TAG, "Audio encoder: Limitless Opus format (${Constants.SAMPLE_RATE}Hz mono, 16kbps)")
         } catch (e: Exception) {
-            Log.w(TAG, "Opus encoder not available, falling back to PCM", e)
+            Log.e(TAG, "Failed to init MediaCodec Opus encoder, using PCM fallback", e)
             useFallbackPcm = true
-            isInitialized = true // Still "initialized" — just using PCM fallback
+            isInitialized = true
         }
     }
 
@@ -114,6 +107,7 @@ class OpusEncoder {
 
     /**
      * Drain available output buffers from the encoder.
+     * Formats the output stream identically to Limitless .bin sequence.
      */
     private fun drainEncoder(mediaCodec: MediaCodec, outputStream: ByteArrayOutputStream) {
         val bufferInfo = MediaCodec.BufferInfo()
@@ -121,9 +115,27 @@ class OpusEncoder {
             val outputBufferIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, TIMEOUT_US)
             if (outputBufferIndex >= 0) {
                 val outputBuffer = mediaCodec.getOutputBuffer(outputBufferIndex) ?: break
+                
+                // Skip Codec Config (OpusHead). Limitless .bin does not use containers.
+                if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
+                    mediaCodec.releaseOutputBuffer(outputBufferIndex, false)
+                    continue
+                }
+
                 if (bufferInfo.size > 0) {
                     val chunk = ByteArray(bufferInfo.size)
+                    outputBuffer.position(bufferInfo.offset)
+                    outputBuffer.limit(bufferInfo.offset + bufferInfo.size)
                     outputBuffer.get(chunk)
+                    
+                    // Prefix: 4-byte little-endian uint32 frame length (Limitless .bin format)
+                    val len = chunk.size
+                    outputStream.write(len and 0xFF)
+                    outputStream.write((len shr 8) and 0xFF)
+                    outputStream.write((len shr 16) and 0xFF)
+                    outputStream.write((len shr 24) and 0xFF)
+                    
+                    // Body: Raw Opus compressed frame
                     outputStream.write(chunk)
                 }
                 mediaCodec.releaseOutputBuffer(outputBufferIndex, false)

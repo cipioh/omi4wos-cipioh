@@ -5,11 +5,14 @@ import com.omi4wos.shared.Constants
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
@@ -122,5 +125,129 @@ class OmiApiClient {
         } catch (e: Exception) {
             Pair(false, "Error: ${e.message}")
         }
+    }
+
+    /**
+     * Upload an aggregated .bin Opus file directly to the /v2/sync-local-files endpoint.
+     * This mimics the Limitless Pendant payload.
+     *
+     * @param firebaseToken Google Auth token matching the user's web session
+     * @param binFile The raw .bin file constructed on phone
+     * @param uploadName The required Limitless naming convention e.g. recording_fs320_12345.bin
+     * @return Raw JSON response containing job_id or immediate memories, null on failure.
+     */
+    suspend fun uploadAudioSync(
+        firebaseToken: String,
+        binFile: File,
+        uploadName: String
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            val url = "https://api.omi.me/v2/sync-local-files"
+            
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart(
+                    "files",
+                    uploadName,
+                    binFile.asRequestBody("application/octet-stream".toMediaType())
+                )
+                .build()
+
+            val request = Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer $firebaseToken")
+                .post(requestBody)
+                .build()
+
+            Log.d(TAG, "Uploading raw .bin to Omi: $uploadName (${binFile.length()} bytes)")
+
+            val response = client.newCall(request).execute()
+            val success = response.isSuccessful
+            val body = response.body?.string()
+            val statusCode = response.code
+            response.close()
+
+            if (success) {
+                Log.i(TAG, "Audio sync accepted ($statusCode): $body")
+                body
+            } else {
+                Log.w(TAG, "Audio sync failed ($statusCode): $body")
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Audio sync exception", e)
+            null
+        }
+    }
+
+    /**
+     * Refreshes the Firebase token if expired using the refresh token and web API key.
+     * Returns the valid Firebase ID Token.
+     */
+    suspend fun getValidFirebaseToken(
+        omiConfig: OmiConfig
+    ): String? = withContext(Dispatchers.IO) {
+        val config = omiConfig.getConfig()
+        val nowSecs = System.currentTimeMillis() / 1000
+
+        // If the token is valid (with 60s buffer), use it
+        if (config.firebaseToken.isNotBlank() && config.firebaseTokenExpiresAt - 60 > nowSecs) {
+            return@withContext config.firebaseToken
+        }
+
+        // Token expired or no expiry set. Try to refresh if we have credentials
+        if (config.firebaseRefreshToken.isNotBlank() && config.firebaseWebApiKey.isNotBlank()) {
+            Log.i(TAG, "Firebase token expired or expiring soon. Requesting refresh...")
+            try {
+                val url = "https://securetoken.googleapis.com/v1/token?key=${config.firebaseWebApiKey}"
+                val jsonBody = JSONObject().apply {
+                    put("grant_type", "refresh_token")
+                    put("refresh_token", config.firebaseRefreshToken)
+                }
+
+                val request = Request.Builder()
+                    .url(url)
+                    .post(jsonBody.toString().toRequestBody(JSON_MEDIA_TYPE))
+                    .build()
+
+                val response = client.newCall(request).execute()
+                val success = response.isSuccessful
+                val bodyStr = response.body?.string()
+                response.close()
+
+                if (success && bodyStr != null) {
+                    val respObj = JSONObject(bodyStr)
+                    val newIdToken = respObj.getString("id_token")
+                    val newRefreshToken = respObj.getString("refresh_token")
+                    val expiresIn = respObj.getLong("expires_in")
+                    
+                    val newExpiresAt = nowSecs + expiresIn
+
+                    omiConfig.saveConfig(
+                        config.copy(
+                            firebaseToken = newIdToken,
+                            firebaseRefreshToken = newRefreshToken,
+                            firebaseTokenExpiresAt = newExpiresAt
+                        )
+                    )
+                    Log.i(TAG, "Successfully refreshed Firebase token.")
+                    return@withContext newIdToken
+                } else {
+                    Log.w(TAG, "Token refresh failed: $bodyStr")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Token refresh exception", e)
+            }
+        } else if (config.firebaseToken.isNotBlank() && config.firebaseTokenExpiresAt == 0L) {
+             // Fallback for first run where user just pasted the ID token manually.
+             // Assume they literally just grabbed it, so set expiry to 1 hr from now.
+             Log.i(TAG, "No expiry found. Seeding cache to 1 hour from now for manual token.")
+             omiConfig.saveConfig(
+                 config.copy(firebaseTokenExpiresAt = nowSecs + 3600)
+             )
+             return@withContext config.firebaseToken
+        }
+
+        return@withContext if (config.firebaseToken.isNotBlank()) config.firebaseToken else null
     }
 }

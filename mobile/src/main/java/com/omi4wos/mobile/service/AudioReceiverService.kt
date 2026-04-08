@@ -1,8 +1,10 @@
 package com.omi4wos.mobile.service
 
+import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.google.android.gms.wearable.MessageEvent
+import com.google.android.gms.wearable.Node
 import com.google.android.gms.wearable.WearableListenerService
 import com.omi4wos.shared.AudioChunk
 import com.omi4wos.shared.DataLayerPaths
@@ -17,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.io.ByteArrayInputStream
 import java.io.DataInputStream
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * WearableListenerService that receives audio chunks from the watch
@@ -38,131 +41,126 @@ class AudioReceiverService : WearableListenerService() {
 
         private val _segmentsReceived = MutableStateFlow(0)
         val segmentsReceived: StateFlow<Int> = _segmentsReceived
+
+        private val _isReceivingAudio = MutableStateFlow(false)
+        val isReceivingAudio: StateFlow<Boolean> = _isReceivingAudio
+
+        // Shared segment tracking — used by both WearableListenerService and direct listener
+        private val activeSegments = ConcurrentHashMap<String, MutableList<AudioChunk>>()
+        private val companionScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+        /**
+         * Process an incoming message from either WearableListenerService or a direct
+         * MessageClient listener. Called from both paths so logic stays in one place.
+         */
+        fun processMessage(context: Context, path: String, data: ByteArray) {
+            _watchConnected.value = true
+            Log.d(TAG, "processMessage: path=$path size=${data.size}")
+            when {
+                path.startsWith(DataLayerPaths.AUDIO_SPEECH_PATH) -> handleAudioData(context, data)
+                path == DataLayerPaths.AUDIO_CONTROL_PATH -> handleControlData(data)
+            }
+        }
+
+        private fun handleAudioData(context: Context, data: ByteArray) {
+            try {
+                val chunk = deserializeChunk(data)
+
+                val segmentChunks = activeSegments.getOrPut(chunk.segmentId) { mutableListOf() }
+                
+                // Deduplicate: Some watches fire both WearableListenerService and MessageClient listeners!
+                if (segmentChunks.any { it.chunkIndex == chunk.chunkIndex }) {
+                    return
+                }
+                
+                segmentChunks.add(chunk)
+
+                if (!chunk.isFinal) {
+                    _isReceivingAudio.value = true
+                }
+
+                companionScope.launch { _audioChunkFlow.emit(chunk) }
+
+                if (chunk.isFinal) {
+                    _isReceivingAudio.value = false
+                    val completeSegment = activeSegments.remove(chunk.segmentId)
+                    if (completeSegment != null && completeSegment.isNotEmpty()) {
+                        _segmentsReceived.value++
+                        Log.i(TAG, "Complete segment: ${chunk.segmentId} (${completeSegment.size} chunks)")
+                        triggerTranscription(context, chunk.segmentId, completeSegment)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to process audio message", e)
+            }
+        }
+
+        private fun handleControlData(data: ByteArray) {
+            try {
+                val dis = DataInputStream(ByteArrayInputStream(data))
+                val command = dis.readUTF()
+                Log.d(TAG, "Control message: $command")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to parse control message", e)
+            }
+        }
+
+        private fun triggerTranscription(context: Context, segmentId: String, chunks: List<AudioChunk>) {
+            val totalSize = chunks.sumOf { it.audioData.size }
+            val combinedAudio = ByteArray(totalSize)
+            var offset = 0
+            for (chunk in chunks.sortedBy { it.chunkIndex }) {
+                System.arraycopy(chunk.audioData, 0, combinedAudio, offset, chunk.audioData.size)
+                offset += chunk.audioData.size
+            }
+            val startTime = chunks.minOf { it.timestampMs }
+            val endTime = chunks.maxOf { it.timestampMs + it.durationMs }
+            val validChunks = chunks.filter { it.speechConfidence > 0 }
+            val avgConfidence = if (validChunks.isNotEmpty()) {
+                validChunks.map { it.speechConfidence }.average().toFloat()
+            } else {
+                0f
+            }
+
+            val intent = Intent(context, TranscriptionService::class.java).apply {
+                action = TranscriptionService.ACTION_TRANSCRIBE
+                putExtra(TranscriptionService.EXTRA_SEGMENT_ID, segmentId)
+                putExtra(TranscriptionService.EXTRA_AUDIO_DATA, combinedAudio)
+                putExtra(TranscriptionService.EXTRA_START_TIME, startTime)
+                putExtra(TranscriptionService.EXTRA_END_TIME, endTime)
+                putExtra(TranscriptionService.EXTRA_CONFIDENCE, avgConfidence)
+            }
+            context.startService(intent)
+        }
+
+        private fun deserializeChunk(data: ByteArray): AudioChunk {
+            val dis = DataInputStream(ByteArrayInputStream(data))
+            return AudioChunk(
+                segmentId = dis.readUTF(),
+                chunkIndex = dis.readInt(),
+                timestampMs = dis.readLong(),
+                durationMs = dis.readLong(),
+                speechConfidence = dis.readFloat(),
+                isFinal = dis.readBoolean(),
+                audioData = ByteArray(dis.readInt()).also { dis.readFully(it) }
+            )
+        }
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    // Track active speech segments
-    private val activeSegments = mutableMapOf<String, MutableList<AudioChunk>>()
+    override fun onPeerConnected(peer: Node) {
+        Log.i(TAG, "Watch connected: ${peer.displayName} (${peer.id})")
+        _watchConnected.value = true
+    }
+
+    override fun onPeerDisconnected(peer: Node) {
+        Log.i(TAG, "Watch disconnected: ${peer.displayName} (${peer.id})")
+        _watchConnected.value = false
+    }
 
     override fun onMessageReceived(messageEvent: MessageEvent) {
-        val path = messageEvent.path
-        Log.d(TAG, "Message received: path=$path, size=${messageEvent.data.size}")
-
-        _watchConnected.value = true
-
-        when {
-            path.startsWith(DataLayerPaths.AUDIO_SPEECH_PATH) -> {
-                handleAudioMessage(messageEvent.data)
-            }
-            path == DataLayerPaths.AUDIO_CONTROL_PATH -> {
-                handleControlMessage(messageEvent.data)
-            }
-        }
-    }
-
-    private fun handleAudioMessage(data: ByteArray) {
-        try {
-            val chunk = deserializeChunk(data)
-
-            Log.d(TAG, "Audio chunk: seg=${chunk.segmentId} idx=${chunk.chunkIndex} " +
-                    "final=${chunk.isFinal} size=${chunk.audioData.size}")
-
-            // Accumulate chunks by segment
-            val segmentChunks = activeSegments.getOrPut(chunk.segmentId) { mutableListOf() }
-            segmentChunks.add(chunk)
-
-            // Emit for real-time processing
-            serviceScope.launch {
-                _audioChunkFlow.emit(chunk)
-            }
-
-            if (chunk.isFinal) {
-                // Complete segment received — trigger transcription
-                val completeSegment = activeSegments.remove(chunk.segmentId)
-                if (completeSegment != null && completeSegment.isNotEmpty()) {
-                    _segmentsReceived.value++
-                    Log.i(TAG, "Complete segment: ${chunk.segmentId} " +
-                            "(${completeSegment.size} chunks)")
-                    triggerTranscription(chunk.segmentId, completeSegment)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to process audio message", e)
-        }
-    }
-
-    private fun handleControlMessage(data: ByteArray) {
-        try {
-            val dis = DataInputStream(ByteArrayInputStream(data))
-            val command = dis.readUTF()
-            val extrasCount = dis.readInt()
-            val extras = mutableMapOf<String, String>()
-            repeat(extrasCount) {
-                extras[dis.readUTF()] = dis.readUTF()
-            }
-            Log.d(TAG, "Control message: $command, extras=$extras")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to parse control message", e)
-        }
-    }
-
-    /**
-     * Trigger the TranscriptionService to transcribe a complete speech segment.
-     */
-    private fun triggerTranscription(segmentId: String, chunks: List<AudioChunk>) {
-        // Combine all audio data from the segment
-        val totalSize = chunks.sumOf { it.audioData.size }
-        val combinedAudio = ByteArray(totalSize)
-        var offset = 0
-        for (chunk in chunks.sortedBy { it.chunkIndex }) {
-            System.arraycopy(chunk.audioData, 0, combinedAudio, offset, chunk.audioData.size)
-            offset += chunk.audioData.size
-        }
-
-        val startTime = chunks.minOf { it.timestampMs }
-        val endTime = chunks.maxOf { it.timestampMs + it.durationMs }
-        val avgConfidence = chunks.filter { it.speechConfidence > 0 }
-            .map { it.speechConfidence }
-            .average()
-            .toFloat()
-
-        // Start TranscriptionService with segment data
-        val intent = Intent(this, TranscriptionService::class.java).apply {
-            action = TranscriptionService.ACTION_TRANSCRIBE
-            putExtra(TranscriptionService.EXTRA_SEGMENT_ID, segmentId)
-            putExtra(TranscriptionService.EXTRA_AUDIO_DATA, combinedAudio)
-            putExtra(TranscriptionService.EXTRA_START_TIME, startTime)
-            putExtra(TranscriptionService.EXTRA_END_TIME, endTime)
-            putExtra(TranscriptionService.EXTRA_CONFIDENCE, avgConfidence)
-        }
-        startService(intent)
-    }
-
-    /**
-     * Deserialize an AudioChunk from the compact binary format.
-     */
-    private fun deserializeChunk(data: ByteArray): AudioChunk {
-        val dis = DataInputStream(ByteArrayInputStream(data))
-        val segmentId = dis.readUTF()
-        val chunkIndex = dis.readInt()
-        val timestampMs = dis.readLong()
-        val durationMs = dis.readLong()
-        val confidence = dis.readFloat()
-        val isFinal = dis.readBoolean()
-        val audioLength = dis.readInt()
-        val audioData = ByteArray(audioLength)
-        dis.readFully(audioData)
-
-        return AudioChunk(
-            audioData = audioData,
-            timestampMs = timestampMs,
-            durationMs = durationMs,
-            speechConfidence = confidence,
-            chunkIndex = chunkIndex,
-            segmentId = segmentId,
-            isFinal = isFinal
-        )
+        processMessage(this, messageEvent.path, messageEvent.data)
     }
 
     override fun onDestroy() {

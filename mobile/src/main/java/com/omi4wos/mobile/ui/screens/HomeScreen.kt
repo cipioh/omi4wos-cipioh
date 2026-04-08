@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Watch
 import androidx.compose.material.icons.filled.WatchOff
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -48,7 +49,7 @@ fun HomeScreen(
     ) {
         // Header
         Text(
-            text = "omi4wOS",
+            text = "omi4wOS - cipioh version",
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.primary
@@ -87,13 +88,11 @@ fun HomeScreen(
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
                     )
-                    if (uiState.watchConnected && uiState.isRecording) {
-                        Text(
-                            text = "Recording active",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFF4CAF50)
-                        )
-                    }
+                    Text(
+                        text = "Receiving audio...",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (uiState.watchConnected && uiState.isRecording) Color(0xFF4CAF50) else Color.Transparent
+                    )
                 }
             }
         }
@@ -105,25 +104,40 @@ fun HomeScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            StatCard("Segments", uiState.totalSegments.toString())
-            StatCard("Transcripts", uiState.totalTranscripts.toString())
+            StatCard("Segments", uiState.totalTranscripts.toString())
             StatCard("Uploaded", uiState.totalUploaded.toString())
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Recent transcripts
-        Text(
-            text = "Recent Transcripts",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold
-        )
+        // Recent Uploads Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Recent Uploads",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            androidx.compose.material3.IconButton(
+                onClick = { viewModel.retryPendingUploads() },
+                modifier = Modifier.size(24.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Sync,
+                    contentDescription = "Retry pending",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(8.dp))
 
         if (uiState.recentTranscripts.isEmpty()) {
             Text(
-                text = "No transcripts yet. Transcripts will appear here when the watch detects speech.",
+                text = "No uploads yet. Uploads will appear here when the watch detects speech.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

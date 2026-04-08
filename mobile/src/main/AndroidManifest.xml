@@ -8,12 +8,16 @@
     <!-- Foreground service for transcription -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- Post notifications (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Wake lock -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Request battery optimization exemption so Samsung won't freeze the process -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:allowBackup="true"
@@ -37,7 +41,7 @@
         <service
             android:name=".service.AudioReceiverService"
             android:exported="true"
-            android:permission="com.google.android.gms.permission.BIND_NETWORK_TASK_SERVICE">
+            android:permission="com.google.android.gms.permission.BIND_LISTENER_SERVICE">
             <intent-filter>
                 <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
                 <data
@@ -54,6 +58,12 @@
             </intent-filter>
         </service>
 
+        <!-- Persistent foreground service — keeps process alive so Samsung can't freeze it -->
+        <service
+            android:name=".service.WatchReceiverService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
         <!-- Transcription Service -->
         <service
             android:name=".service.TranscriptionService"
@@ -64,6 +74,17 @@
         <meta-data
             android:name="com.google.android.gms.version"
             android:value="@integer/google_play_services_version" />
+
+        <!-- FileProvider for sharing audio files to SpeechRecognizer -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.omi4wos.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
     </application>
 

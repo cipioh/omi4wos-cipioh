@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.omi4wos.shared.Constants
@@ -20,16 +21,24 @@ class OmiConfig(private val context: Context) {
     data class Config(
         val apiKey: String = "",
         val appId: String = "",
-        val userId: String = ""
+        val userId: String = "",
+        val firebaseToken: String = "",
+        val firebaseRefreshToken: String = "",
+        val firebaseWebApiKey: String = "",
+        val firebaseTokenExpiresAt: Long = 0L
     ) {
         val isConfigured: Boolean
-            get() = apiKey.isNotBlank() && appId.isNotBlank() && userId.isNotBlank()
+            get() = firebaseToken.isNotBlank() || (apiKey.isNotBlank() && appId.isNotBlank() && userId.isNotBlank())
     }
 
     companion object {
         private val KEY_API_KEY = stringPreferencesKey(Constants.PREF_OMI_API_KEY)
         private val KEY_APP_ID = stringPreferencesKey(Constants.PREF_OMI_APP_ID)
         private val KEY_USER_ID = stringPreferencesKey(Constants.PREF_OMI_USER_ID)
+        private val KEY_FIREBASE_TOKEN = stringPreferencesKey("omi_firebase_token")
+        private val KEY_FIREBASE_REFRESH_TOKEN = stringPreferencesKey("omi_firebase_refresh_token")
+        private val KEY_FIREBASE_WEB_API_KEY = stringPreferencesKey("omi_firebase_web_api_key")
+        private val KEY_FIREBASE_TOKEN_EXPIRES_AT = longPreferencesKey("omi_firebase_token_expires_at")
     }
 
     /**
@@ -40,7 +49,11 @@ class OmiConfig(private val context: Context) {
             Config(
                 apiKey = prefs[KEY_API_KEY] ?: "",
                 appId = prefs[KEY_APP_ID] ?: "",
-                userId = prefs[KEY_USER_ID] ?: ""
+                userId = prefs[KEY_USER_ID] ?: "",
+                firebaseToken = prefs[KEY_FIREBASE_TOKEN] ?: "",
+                firebaseRefreshToken = prefs[KEY_FIREBASE_REFRESH_TOKEN] ?: "",
+                firebaseWebApiKey = prefs[KEY_FIREBASE_WEB_API_KEY] ?: "",
+                firebaseTokenExpiresAt = prefs[KEY_FIREBASE_TOKEN_EXPIRES_AT] ?: 0L
             )
         }.first()
     }
@@ -53,6 +66,10 @@ class OmiConfig(private val context: Context) {
             prefs[KEY_API_KEY] = config.apiKey
             prefs[KEY_APP_ID] = config.appId
             prefs[KEY_USER_ID] = config.userId
+            prefs[KEY_FIREBASE_TOKEN] = config.firebaseToken
+            prefs[KEY_FIREBASE_REFRESH_TOKEN] = config.firebaseRefreshToken
+            prefs[KEY_FIREBASE_WEB_API_KEY] = config.firebaseWebApiKey
+            prefs[KEY_FIREBASE_TOKEN_EXPIRES_AT] = config.firebaseTokenExpiresAt
         }
     }
 
@@ -63,7 +80,11 @@ class OmiConfig(private val context: Context) {
         Config(
             apiKey = prefs[KEY_API_KEY] ?: "",
             appId = prefs[KEY_APP_ID] ?: "",
-            userId = prefs[KEY_USER_ID] ?: ""
+            userId = prefs[KEY_USER_ID] ?: "",
+            firebaseToken = prefs[KEY_FIREBASE_TOKEN] ?: "",
+            firebaseRefreshToken = prefs[KEY_FIREBASE_REFRESH_TOKEN] ?: "",
+            firebaseWebApiKey = prefs[KEY_FIREBASE_WEB_API_KEY] ?: "",
+            firebaseTokenExpiresAt = prefs[KEY_FIREBASE_TOKEN_EXPIRES_AT] ?: 0L
         )
     }
 

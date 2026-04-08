@@ -64,7 +64,7 @@ fun SettingsScreen(
                 modifier = Modifier.padding(16.dp)
             ) {
                 Text(
-                    text = "Omi API Configuration",
+                    text = "Omi Cloud Configuration",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -72,18 +72,48 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
-                    text = "Configure your Omi integration credentials. Create an app in the Omi mobile app with External Integration + Imports capabilities.",
+                    text = "Configure your direct-sync credentials to upload audio securely.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
+                // Omi Firebase ID configuration (v2/sync-local-files requires this instead of standard keys)
+                Text(
+                    text = "Omi Web Session Authentication (Required)",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "The audio upload API requires tokens from your browser session on app.omi.me.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "How to obtain Firebase Token:\n" +
+                            "1. Open app.omi.me in Chrome and sign in (from a computer is best).\n" +
+                            "2. Open DevTools (`F12` or `Cmd+Option+I`) → Network tab\n" +
+                            "3. Click any request in the list → Headers → copy the value after `Authorization: Bearer `\n\n" +
+                            "How to obtain Refresh Token (for automatic long-term renewal):\n" +
+                            "1. In DevTools → Application tab\n" +
+                            "2. IndexedDB → `firebaseLocalStorageDb` → `firebaseLocalStorage`\n" +
+                            "3. Expand your user entry → `stsTokenManager` → copy `refreshToken`\n\n" +
+                            "How to obtain Web API Key (required for auto-refresh):\n" +
+                            "1. In the Network tab, filter requests by `googleapis.com`\n" +
+                            "2. Look for the API key in the request URL parameter: `key=AIza...`",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                
                 Spacer(modifier = Modifier.height(16.dp))
 
                 OutlinedTextField(
-                    value = uiState.apiKey,
-                    onValueChange = { viewModel.updateApiKey(it) },
-                    label = { Text("API Key") },
-                    placeholder = { Text("sk_...") },
+                    value = uiState.firebaseWebApiKey,
+                    onValueChange = { viewModel.updateFirebaseWebApiKey(it) },
+                    label = { Text("Firebase Web API Key") },
+                    placeholder = { Text("AIza...") },
                     modifier = Modifier.fillMaxWidth(),
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -93,25 +123,29 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 OutlinedTextField(
-                    value = uiState.appId,
-                    onValueChange = { viewModel.updateAppId(it) },
-                    label = { Text("App ID") },
-                    placeholder = { Text("Your Omi app ID") },
+                    value = uiState.firebaseToken,
+                    onValueChange = { viewModel.updateFirebaseToken(it) },
+                    label = { Text("Firebase Token (expires in 1h)") },
+                    placeholder = { Text("eyJ...") },
                     modifier = Modifier.fillMaxWidth(),
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     singleLine = true
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
 
                 OutlinedTextField(
-                    value = uiState.userId,
-                    onValueChange = { viewModel.updateUserId(it) },
-                    label = { Text("User ID") },
-                    placeholder = { Text("Your Omi user ID") },
+                    value = uiState.firebaseRefreshToken,
+                    onValueChange = { viewModel.updateFirebaseRefreshToken(it) },
+                    label = { Text("Refresh Token") },
+                    placeholder = { Text("AMf...") },
                     modifier = Modifier.fillMaxWidth(),
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     singleLine = true
                 )
-
+                
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Button(
@@ -147,11 +181,11 @@ fun SettingsScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "omi4wOS Companion v1.0.0",
+                    text = "omi4wOS Companion V1.0.0 (cipioh version)",
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Text(
-                    text = "Receives speech audio from WearOS watch, transcribes it, and uploads transcripts to Omi.",
+                    text = "Adapted from https://github.com/neurocis/omi4wos",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

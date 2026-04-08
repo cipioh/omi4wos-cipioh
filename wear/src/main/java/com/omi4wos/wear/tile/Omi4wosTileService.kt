@@ -6,6 +6,7 @@ import androidx.core.content.ContextCompat
 import androidx.wear.tiles.ActionBuilders
 import androidx.wear.tiles.ColorBuilders.argb
 import androidx.wear.tiles.DimensionBuilders.dp
+import androidx.wear.tiles.DimensionBuilders.sp
 import androidx.wear.tiles.DimensionBuilders.wrap
 import androidx.wear.tiles.LayoutElementBuilders
 import androidx.wear.tiles.ModifiersBuilders
@@ -42,7 +43,7 @@ class Omi4wosTileService : TileService() {
 
         TileBuilders.Tile.Builder()
             .setResourcesVersion("1")
-            .setTileTimeline(
+            .setTimeline(
                 TimelineBuilders.Timeline.Builder()
                     .addTimelineEntry(
                         TimelineBuilders.TimelineEntry.Builder()
@@ -58,7 +59,7 @@ class Omi4wosTileService : TileService() {
             .build()
     }
 
-    override fun onTileResourcesRequest(
+    override fun onResourcesRequest(
         requestParams: RequestBuilders.ResourcesRequest
     ): ListenableFuture<ResourceBuilders.Resources> = scope.future {
         ResourceBuilders.Resources.Builder()
@@ -101,7 +102,7 @@ class Omi4wosTileService : TileService() {
                             .setText("omi4wOS")
                             .setFontStyle(
                                 LayoutElementBuilders.FontStyle.Builder()
-                                    .setSize(dp(16f))
+                                    .setSize(sp(16f))
                                     .setColor(argb(0xFFFFFFFF.toInt()))
                                     .build()
                             )
@@ -117,7 +118,7 @@ class Omi4wosTileService : TileService() {
                             .setText(statusText)
                             .setFontStyle(
                                 LayoutElementBuilders.FontStyle.Builder()
-                                    .setSize(dp(12f))
+                                    .setSize(sp(12f))
                                     .setColor(argb(bgColor))
                                     .build()
                             )

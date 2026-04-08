@@ -9,6 +9,7 @@ import kotlin.concurrent.withLock
  *
  * The buffer stores the most recent N samples. When full, old samples are overwritten.
  * readLatest() returns the most recent requested number of samples without consuming them.
+ * consumeUnread() returns all new samples since the last consume/rewind operation.
  */
 class CircularAudioBuffer(private val capacity: Int) {
 
@@ -17,6 +18,10 @@ class CircularAudioBuffer(private val capacity: Int) {
     private var totalWritten = 0L
     private val lock = ReentrantLock()
 
+    // Tracking for consuming reads (encoding)
+    private var readPos = 0
+    private var unreadCount = 0
+
     /**
      * Write samples into the circular buffer.
      * Called from the recording thread.
@@ -24,9 +29,16 @@ class CircularAudioBuffer(private val capacity: Int) {
     fun write(samples: ShortArray) {
         lock.withLock {
             for (sample in samples) {
-                buffer[writePos % capacity] = sample
+                buffer[writePos] = sample
                 writePos = (writePos + 1) % capacity
                 totalWritten++
+                
+                if (unreadCount < capacity) {
+                    unreadCount++
+                } else {
+                    // Buffer overflowed before reading, push readPos forward
+                    readPos = (readPos + 1) % capacity
+                }
             }
         }
     }
@@ -42,11 +54,11 @@ class CircularAudioBuffer(private val capacity: Int) {
             if (available == 0) return 0
 
             // Calculate start position for reading
-            var readPos = (writePos - available + capacity) % capacity
+            var tempReadPos = (writePos - available + capacity) % capacity
 
             for (i in 0 until available) {
-                dest[i] = buffer[readPos]
-                readPos = (readPos + 1) % capacity
+                dest[i] = buffer[tempReadPos]
+                tempReadPos = (tempReadPos + 1) % capacity
             }
 
             // Zero-fill remainder if dest is larger than available
@@ -55,6 +67,33 @@ class CircularAudioBuffer(private val capacity: Int) {
             }
 
             return available
+        }
+    }
+    
+    /**
+     * Rewind the consuming read pointer by [samplesBack] samples.
+     * Useful for capturing pre-roll audio before speech classification triggered.
+     */
+    fun rewindReadPos(samplesBack: Int) {
+        lock.withLock {
+            unreadCount = minOf(samplesBack, minOf(totalWritten.toInt(), capacity))
+            readPos = (writePos - unreadCount + capacity) % capacity
+        }
+    }
+    
+    /**
+     * Consumes and returns all newly written samples since the last consume/rewind.
+     */
+    fun consumeUnread(): ShortArray {
+        lock.withLock {
+            if (unreadCount == 0) return ShortArray(0)
+            val dest = ShortArray(unreadCount)
+            for (i in 0 until unreadCount) {
+                dest[i] = buffer[readPos]
+                readPos = (readPos + 1) % capacity
+            }
+            unreadCount = 0
+            return dest
         }
     }
 
@@ -75,6 +114,8 @@ class CircularAudioBuffer(private val capacity: Int) {
             buffer.fill(0)
             writePos = 0
             totalWritten = 0
+            readPos = 0
+            unreadCount = 0
         }
     }
 }

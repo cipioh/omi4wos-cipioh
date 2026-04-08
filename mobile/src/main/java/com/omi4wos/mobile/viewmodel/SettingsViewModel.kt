@@ -12,6 +12,9 @@ data class SettingsUiState(
     val apiKey: String = "",
     val appId: String = "",
     val userId: String = "",
+    val firebaseToken: String = "",
+    val firebaseRefreshToken: String = "",
+    val firebaseWebApiKey: String = "",
     val isSaving: Boolean = false,
     val saveSuccess: Boolean? = null
 )
@@ -33,7 +36,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             _uiState.value = _uiState.value.copy(
                 apiKey = config.apiKey,
                 appId = config.appId,
-                userId = config.userId
+                userId = config.userId,
+                firebaseToken = config.firebaseToken,
+                firebaseRefreshToken = config.firebaseRefreshToken,
+                firebaseWebApiKey = config.firebaseWebApiKey
             )
         }
     }
@@ -50,16 +56,33 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         _uiState.value = _uiState.value.copy(userId = value)
     }
 
+    fun updateFirebaseToken(value: String) {
+        _uiState.value = _uiState.value.copy(firebaseToken = value)
+    }
+
+    fun updateFirebaseRefreshToken(value: String) {
+        _uiState.value = _uiState.value.copy(firebaseRefreshToken = value)
+    }
+
+    fun updateFirebaseWebApiKey(value: String) {
+        _uiState.value = _uiState.value.copy(firebaseWebApiKey = value)
+    }
+
     fun saveSettings() {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isSaving = true)
             try {
                 val state = _uiState.value
+                val existingConfig = omiConfig.getConfig()
                 omiConfig.saveConfig(
                     OmiConfig.Config(
                         apiKey = state.apiKey,
                         appId = state.appId,
-                        userId = state.userId
+                        userId = state.userId,
+                        firebaseToken = state.firebaseToken,
+                        firebaseRefreshToken = state.firebaseRefreshToken,
+                        firebaseWebApiKey = state.firebaseWebApiKey,
+                        firebaseTokenExpiresAt = existingConfig.firebaseTokenExpiresAt // Preserve expiry tracking
                     )
                 )
                 _uiState.value = _uiState.value.copy(

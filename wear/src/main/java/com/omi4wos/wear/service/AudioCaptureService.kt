@@ -213,20 +213,32 @@ class AudioCaptureService : Service() {
             // Start new speech segment
             isInSpeechSegment = true
             speechStartTimeMs = System.currentTimeMillis()
-            currentSegmentId = UUID.randomUUID().toString().take(8)
+            currentSegmentId = java.util.UUID.randomUUID().toString().take(8)
             chunkIndex = 0
             _isSpeechDetected.value = true
 
             updateNotification("Speech detected")
             Log.d(TAG, "Speech segment started: $currentSegmentId (conf=$confidence)")
 
-            // Extract pre-roll audio from circular buffer
+            // Rewind the encoding pointer to capture pre-roll, then send it
+            val preRollSamples = (Constants.SAMPLE_RATE * Constants.PRE_ROLL_SECONDS).toInt()
+            circularBuffer.rewindReadPos(preRollSamples)
             extractAndSendPreRoll()
         }
 
         if (isInSpeechSegment) {
-            // Extract and send current audio chunk
+            // Extract and send current newly captured audio chunks
             extractAndSendChunk(confidence, isFinal = false)
+
+            // Check if we need to force end due to maximum recording length
+            val elapsed = System.currentTimeMillis() - speechStartTimeMs
+            if (elapsed > Constants.MAX_SPEECH_SEGMENT_SECONDS * 1000L) {
+                Log.d(TAG, "Max segment duration reached, forcing end")
+                extractAndSendChunk(0f, isFinal = true)
+                isInSpeechSegment = false
+                _isSpeechDetected.value = false
+                updateNotification("Monitoring for speech…")
+            }
         }
     }
 
@@ -238,6 +250,10 @@ class AudioCaptureService : Service() {
             // End speech segment
             val duration = System.currentTimeMillis() - speechStartTimeMs
 
+            isInSpeechSegment = false
+            _isSpeechDetected.value = false
+            updateNotification("Monitoring for speech…")
+
             if (duration >= Constants.MIN_SPEECH_DURATION_MS) {
                 // Send final chunk marker
                 extractAndSendChunk(0f, isFinal = true)
@@ -245,19 +261,14 @@ class AudioCaptureService : Service() {
             } else {
                 Log.d(TAG, "Speech segment too short, discarding: ${duration}ms")
             }
-
-            isInSpeechSegment = false
-            _isSpeechDetected.value = false
-            updateNotification("Monitoring for speech…")
         }
     }
 
     private fun extractAndSendPreRoll() {
-        val preRollSamples = (Constants.SAMPLE_RATE * Constants.PRE_ROLL_SECONDS).toInt()
-        val preRollBuffer = ShortArray(preRollSamples)
-        circularBuffer.readLatest(preRollBuffer, preRollSamples)
+        val unreadBuffer = circularBuffer.consumeUnread()
+        if (unreadBuffer.isEmpty()) return
 
-        val encoded = opusEncoder.encode(preRollBuffer)
+        val encoded = opusEncoder.encode(unreadBuffer)
         if (encoded != null) {
             val chunk = AudioChunk(
                 audioData = encoded,
@@ -275,11 +286,10 @@ class AudioCaptureService : Service() {
     }
 
     private fun extractAndSendChunk(confidence: Float, isFinal: Boolean) {
-        val chunkSamples = Constants.YAMNET_INPUT_SAMPLES
-        val chunkBuffer = ShortArray(chunkSamples)
-        circularBuffer.readLatest(chunkBuffer, chunkSamples)
+        val unreadBuffer = circularBuffer.consumeUnread()
+        if (unreadBuffer.isEmpty() && !isFinal) return
 
-        val encoded = opusEncoder.encode(chunkBuffer)
+        val encoded = if (unreadBuffer.isNotEmpty()) opusEncoder.encode(unreadBuffer) else null
         if (encoded != null || isFinal) {
             val chunk = AudioChunk(
                 audioData = encoded ?: ByteArray(0),
@@ -293,13 +303,6 @@ class AudioCaptureService : Service() {
             serviceScope.launch {
                 dataLayerSender.sendAudioChunk(chunk)
             }
-        }
-
-        // Check max segment duration
-        val elapsed = System.currentTimeMillis() - speechStartTimeMs
-        if (elapsed > Constants.MAX_SPEECH_SEGMENT_SECONDS * 1000L) {
-            Log.d(TAG, "Max segment duration reached, forcing end")
-            handleSilenceFrame()
         }
     }
 

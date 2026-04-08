@@ -9,7 +9,7 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.omi4wos.wear"
+        applicationId = "com.omi4wos"
         minSdk = 30
         targetSdk = 34
         versionCode = 1
@@ -77,6 +77,7 @@ dependencies {
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.8.1")
 
     // TensorFlow Lite for YAMNet
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
@@ -86,6 +87,9 @@ dependencies {
     implementation("androidx.wear.tiles:tiles:1.4.0")
     implementation("androidx.wear.tiles:tiles-material:1.4.0")
     implementation("androidx.wear.tiles:tiles-tooling-preview:1.4.0")
+
+    // AppCompat (provides colorControlNormal attr used in ic_mic.xml drawable)
+    implementation("androidx.appcompat:appcompat:1.7.0")
 
     // Core
     implementation("androidx.core:core-ktx:1.13.1")
